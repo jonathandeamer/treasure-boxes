@@ -1,0 +1,70 @@
+_export:
+  td:
+    database: '${activation_actions_db}'
+  
+# tables:
+#   - 'previous_profiles_syndication_${activation_id}': table that contains the profiles of the previous run
+#   - '${activation_actions_table}': table that contains the profiles of the current run
+#   - 'diff_syndication_${activation_id}': table that contains the diff between the previous and the current run
+
++create_previous_profiles:
+  td>:
+  query: "CREATE TABLE IF NOT EXISTS previous_profiles_syndication_${activation_id} (session_id varchar, attempt_id varchar, ${JSON.parse(result_connection_settings).identifier_type=='contact_info' ? 'email' : 'mobile_id'} varchar) ;"
+
++drop_diff_if_exists:
+  td_ddl>:
+  drop_tables: ['diff_syndication_${activation_id}']
+
++calc_diff:
+  td>: calc_diff.sql
+  create_table: 'diff_syndication_${activation_id}'
+
++get_added_profiles:
+  td>:
+  query: "SELECT * FROM ${activation_actions_table} WHERE ${JSON.parse(result_connection_settings).identifier_type=='contact_info' ? 'email' : 'mobile_id'} in (SELECT ${JSON.parse(result_connection_settings).identifier_type=='contact_info' ? 'email' : 'mobile_id'} FROM diff_syndication_${activation_id} WHERE change = 'add')"
++activate_added_profiles:
+  if>: ${td.last_job.num_records>0}
+  _do:
+    td_result_export>:
+    job_id: ${td.last_job_id}
+    result_connection: ${result_connection_name}
+    result_settings:
+      type: google_customer_match
+      advertiser_id: ${JSON.parse(result_connection_settings).advertiser_id}
+      list_name: 'TD: ${segment_name}'
+      identifier_type: ${JSON.parse(result_connection_settings).identifier_type}
+      mode: add
+      ad_user_data_consent: ${JSON.parse(result_connection_settings).ad_user_data_consent}
+      ad_personalization_consent: ${JSON.parse(result_connection_settings).ad_personalization_consent}
+      membership_life_span: ${JSON.parse(result_connection_settings).membership_life_span}
+      app_id: ${JSON.parse(result_connection_settings).app_id}
+
+  
++get_removed_profiles:
+  td>:
+  query: "SELECT * FROM previous_profiles_syndication_${activation_id} WHERE ${JSON.parse(result_connection_settings).identifier_type=='contact_info' ? 'email' : 'mobile_id'} in (SELECT ${JSON.parse(result_connection_settings).identifier_type=='contact_info' ? 'email' : 'mobile_id'} FROM diff_syndication_${activation_id} WHERE change = 'delete')"
++activate_removed_profiles:
+  if>: ${td.last_job.num_records>0}
+  _do:
+    td_result_export>:
+    job_id: ${td.last_job_id}
+    result_connection: ${result_connection_name}
+    result_settings:
+      type: google_customer_match
+      advertiser_id: ${JSON.parse(result_connection_settings).advertiser_id}
+      list_name: 'TD: ${segment_name}'
+      identifier_type: ${JSON.parse(result_connection_settings).identifier_type}
+      mode: remove
+      ad_user_data_consent: ${JSON.parse(result_connection_settings).ad_user_data_consent}
+      ad_personalization_consent: ${JSON.parse(result_connection_settings).ad_personalization_consent}
+      membership_life_span: ${JSON.parse(result_connection_settings).membership_life_span}
+      app_id: ${JSON.parse(result_connection_settings).app_id}
+      
+
++drop_diff:
+  td_ddl>:
+  drop_tables: ['diff_syndication_${activation_id}', 'previous_profiles_syndication_${activation_id}'] # DROP TABLE IF EXISTS
+
++save_previous_profiles:
+  td>:
+  query: "CREATE TABLE previous_profiles_syndication_${activation_id} AS SELECT '${session_id}' as session_id, '${attempt_id}' as attempt_id, * FROM ${activation_actions_table} ;"
